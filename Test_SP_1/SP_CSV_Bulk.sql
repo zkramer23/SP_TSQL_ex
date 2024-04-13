@@ -3,12 +3,14 @@ CREATE PROCEDURE sp_LoadAndMergeMultipleDataFiles
     @FilePath2 NVARCHAR(1000)  -- Full path to the second flat file
 AS
 BEGIN
-    -- Begin the overall transaction (optional, depending on need for atomicity across all operations)
-    BEGIN TRANSACTION;
+    DECLARE @RowsInserted1 INT, @RowsUpdated1 INT;
+    DECLARE @RowsInserted2 INT, @RowsUpdated2 INT;
+    DECLARE @UserName NVARCHAR(255) = SYSTEM_USER;
+
+    BEGIN TRANSACTION; -- Begin the overall transaction for atomicity
 
     -- First bulk insert and merge operation
     BEGIN TRY
-        -- Create the first temporary table and load data
         DROP TABLE IF EXISTS #TempData1;
         CREATE TABLE #TempData1 (
             ID INT,
@@ -24,7 +26,6 @@ BEGIN
             FIRSTROW = 2          
         );
 
-        -- Merge data into the first destination table 'pbl1'
         MERGE INTO pbl1 AS Target
         USING #TempData1 AS Source
             ON Target.ID = Source.ID
@@ -35,15 +36,22 @@ BEGIN
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (ID, Name, Position)
             VALUES (Source.ID, Source.Name, Source.Position);
+
+        SELECT @RowsInserted1 = @@ROWCOUNT WHERE $action = 'INSERT';
+        SELECT @RowsUpdated1 = @@ROWCOUNT WHERE $action = 'UPDATE';
+
+        -- Log the successful merge
+        INSERT INTO MergeLog (ProcedureName, UserName, RunDateTime, RowsInserted, RowsUpdated, RowsDeleted)
+        VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), @RowsInserted1, @RowsUpdated1, 0);
     END TRY
     BEGIN CATCH
-        -- Log error with details about the first process failure
-        DECLARE @ErrorID1 INT = dbo.LogError('sp_LoadAndMergeMultipleDataFiles', 'Bulk Insert 1');
+        -- Log the error
+        INSERT INTO ErrorLog (ProcedureName, UserName, ErrorDateTime, ErrorMessage, ErrorSeverity, ErrorState)
+        VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE());
     END CATCH
 
     -- Second bulk insert and merge operation
     BEGIN TRY
-        -- Create the second temporary table and load data
         DROP TABLE IF EXISTS #TempData2;
         CREATE TABLE #TempData2 (
             EmployeeID INT,
@@ -59,7 +67,6 @@ BEGIN
             FIRSTROW = 2          
         );
 
-        -- Merge data into the second destination table 'pbl2'
         MERGE INTO pbl2 AS Target
         USING #TempData2 AS Source
             ON Target.EmployeeID = Source.EmployeeID
@@ -70,13 +77,21 @@ BEGIN
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (EmployeeID, Department, Salary)
             VALUES (Source.EmployeeID, Source.Department, Source.Salary);
+
+        SELECT @RowsInserted2 = @@ROWCOUNT WHERE $action = 'INSERT';
+        SELECT @RowsUpdated2 = @@ROWCOUNT WHERE $action = 'UPDATE';
+
+        -- Log the successful merge
+        INSERT INTO MergeLog (ProcedureName, UserName, RunDateTime, RowsInserted, RowsUpdated, RowsDeleted)
+        VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), @RowsInserted2, @RowsUpdated2, 0);
     END TRY
     BEGIN CATCH
-        -- Log error with details about the second process failure
-        DECLARE @ErrorID2 INT = dbo.LogError('sp_LoadAndMergeMultipleDataFiles', 'Bulk Insert 2');
+        -- Log the error
+        INSERT INTO ErrorLog (ProcedureName, UserName, ErrorDateTime, ErrorMessage, ErrorSeverity, ErrorState)
+        VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE());
     END CATCH
 
-    -- Decide to commit or rollback based on the presence of errors
+    -- Commit or rollback based on errors
     IF @@TRANCOUNT > 0
         COMMIT TRANSACTION;
 END;
