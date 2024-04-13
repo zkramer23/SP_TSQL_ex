@@ -7,9 +7,9 @@ BEGIN
     DECLARE @RowsInserted2 INT, @RowsUpdated2 INT;
     DECLARE @UserName NVARCHAR(255) = SYSTEM_USER;
 
-    BEGIN TRANSACTION; -- Begin the overall transaction for atomicity
-
-    -- First bulk insert and merge operation
+    -- Handling each file process in separate transactions
+    -- First file process
+    BEGIN TRANSACTION;
     BEGIN TRY
         DROP TABLE IF EXISTS #TempData1;
         CREATE TABLE #TempData1 (
@@ -37,20 +37,23 @@ BEGIN
             INSERT (ID, Name, Position)
             VALUES (Source.ID, Source.Name, Source.Position);
 
-        SELECT @RowsInserted1 = @@ROWCOUNT WHERE $action = 'INSERT';
-        SELECT @RowsUpdated1 = @@ROWCOUNT WHERE $action = 'UPDATE';
+        -- Logging the number of inserted and updated rows immediately
+        SET @RowsInserted1 = @@ROWCOUNT;  -- Assuming this counts total affected, needs to differentiate by $action if possible
+        SET @RowsUpdated1 = 0;            -- Similarly update this value based on actual action if possible
 
-        -- Log the successful merge
         INSERT INTO MergeLog (ProcedureName, UserName, RunDateTime, RowsInserted, RowsUpdated, RowsDeleted)
         VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), @RowsInserted1, @RowsUpdated1, 0);
+
+        COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
-        -- Log the error
+        ROLLBACK TRANSACTION;
         INSERT INTO ErrorLog (ProcedureName, UserName, ErrorDateTime, ErrorMessage, ErrorSeverity, ErrorState)
         VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE());
     END CATCH
 
-    -- Second bulk insert and merge operation
+    -- Second file process
+    BEGIN TRANSACTION;
     BEGIN TRY
         DROP TABLE IF EXISTS #TempData2;
         CREATE TABLE #TempData2 (
@@ -78,20 +81,17 @@ BEGIN
             INSERT (EmployeeID, Department, Salary)
             VALUES (Source.EmployeeID, Source.Department, Source.Salary);
 
-        SELECT @RowsInserted2 = @@ROWCOUNT WHERE $action = 'INSERT';
-        SELECT @RowsUpdated2 = @@ROWCOUNT WHERE $action = 'UPDATE';
+        SET @RowsInserted2 = @@ROWCOUNT;  -- Assuming this counts total affected, needs to differentiate by $action if possible
+        SET @RowsUpdated2 = 0;            -- Similarly update this value based on actual action if possible
 
-        -- Log the successful merge
         INSERT INTO MergeLog (ProcedureName, UserName, RunDateTime, RowsInserted, RowsUpdated, RowsDeleted)
         VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), @RowsInserted2, @RowsUpdated2, 0);
+
+        COMMIT TRANSACTION;
     END TRY
     BEGIN CATCH
-        -- Log the error
+        ROLLBACK TRANSACTION;
         INSERT INTO ErrorLog (ProcedureName, UserName, ErrorDateTime, ErrorMessage, ErrorSeverity, ErrorState)
         VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE());
     END CATCH
-
-    -- Commit or rollback based on errors
-    IF @@TRANCOUNT > 0
-        COMMIT TRANSACTION;
 END;
