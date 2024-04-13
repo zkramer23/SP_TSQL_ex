@@ -95,3 +95,4 @@ BEGIN
         VALUES ('sp_LoadAndMergeMultipleDataFiles', @UserName, GETDATE(), ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE());
     END CATCH
 END;
+
