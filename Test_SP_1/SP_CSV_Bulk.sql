@@ -3,7 +3,10 @@ CREATE PROCEDURE sp_LoadAndMergeMultipleDataFiles
     @FilePath2 NVARCHAR(1000)  -- Full path to the second flat file
 AS
 BEGIN
-    -- Setup error handling
+    -- Begin the overall transaction (optional, depending on need for atomicity across all operations)
+    BEGIN TRANSACTION;
+
+    -- First bulk insert and merge operation
     BEGIN TRY
         -- Create the first temporary table and load data
         DROP TABLE IF EXISTS #TempData1;
@@ -32,7 +35,14 @@ BEGIN
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (ID, Name, Position)
             VALUES (Source.ID, Source.Name, Source.Position);
+    END TRY
+    BEGIN CATCH
+        -- Log error with details about the first process failure
+        DECLARE @ErrorID1 INT = dbo.LogError('sp_LoadAndMergeMultipleDataFiles', 'Bulk Insert 1');
+    END CATCH
 
+    -- Second bulk insert and merge operation
+    BEGIN TRY
         -- Create the second temporary table and load data
         DROP TABLE IF EXISTS #TempData2;
         CREATE TABLE #TempData2 (
@@ -60,17 +70,13 @@ BEGIN
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (EmployeeID, Department, Salary)
             VALUES (Source.EmployeeID, Source.Department, Source.Salary);
-
-        -- Commit the transaction to confirm changes
-        COMMIT;
     END TRY
     BEGIN CATCH
-        -- Rollback transaction on error and log the error
-        ROLLBACK;
-        -- Log error with details about which part of the process failed
-        DECLARE @ErrorID1 INT = dbo.LogError('sp_LoadAndMergeMultipleDataFiles', 'Bulk Insert 1');
+        -- Log error with details about the second process failure
         DECLARE @ErrorID2 INT = dbo.LogError('sp_LoadAndMergeMultipleDataFiles', 'Bulk Insert 2');
-        -- Rethrow the error for external handling
-        RAISERROR (ERROR_MESSAGE(), ERROR_SEVERITY(), ERROR_STATE());
     END CATCH
+
+    -- Decide to commit or rollback based on the presence of errors
+    IF @@TRANCOUNT > 0
+        COMMIT TRANSACTION;
 END;

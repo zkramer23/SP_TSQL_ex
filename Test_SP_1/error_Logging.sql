@@ -13,6 +13,16 @@ CREATE TABLE ErrorLog (
 );
 
 
+CREATE TABLE MergeLog (
+    MergeLogID INT IDENTITY(1,1) PRIMARY KEY,
+    ProcedureName NVARCHAR(200),
+    UserName NVARCHAR(255),
+    RunDateTime DATETIME,
+    RowsInserted INT,
+    RowsUpdated INT,
+    RowsDeleted INT
+);
+
 
 CREATE FUNCTION dbo.LogError 
 (
